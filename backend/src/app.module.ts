@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bullmq';
 import { IngestionModule } from './ingestion/ingestion.module';
+import { ProcessingModule } from './processing/processing.module';
 
 @Module({
   imports: [
@@ -9,7 +11,18 @@ import { IngestionModule } from './ingestion/ingestion.module';
     ConfigModule.forRoot({ isGlobal: true }),
     // Enables the timer infrastructure the poller registers into.
     ScheduleModule.forRoot(),
+    // Root Redis connection shared by every queue in the app.
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('REDIS_HOST', 'localhost'),
+          port: config.get<number>('REDIS_PORT', 6379),
+        },
+      }),
+    }),
     IngestionModule,
+    ProcessingModule,
   ],
 })
 export class AppModule {}
