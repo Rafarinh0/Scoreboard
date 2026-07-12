@@ -1,10 +1,13 @@
 import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { EventSource, EVENT_SOURCE, RawEvent } from './event-source';
 import { EventDto } from './dto/event.dto';
+import { EVENTS_QUEUE, EventJobData } from '../queue.constants';
 
 // The poller is the "lean ingestion" of the guide: on a timer it asks the
 // source for new events, validates each one, and (Stage 3) enqueues them.
@@ -24,6 +27,7 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject(EVENT_SOURCE) private readonly source: EventSource,
+    @InjectQueue(EVENTS_QUEUE) private readonly queue: Queue<EventJobData>,
     private readonly scheduler: SchedulerRegistry,
     config: ConfigService,
   ) {
@@ -72,15 +76,22 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
     for (const raw of result.events) {
       const valid = await this.validate(raw, matchId);
       if (!valid) continue;
-
-      // Stage 3 will replace this log with queue.add(...).
-      this.logger.log(
-        `[enqueue] match ${valid.matchId} #${valid.seq}: ${valid.type} ${valid.team} (${valid.player}, ${valid.minute}')`,
-      );
+      await this.enqueue(valid);
     }
 
     // Advance the cursor only after handling this batch.
     this.cursors.set(matchId, result.cursor);
+  }
+
+  // Hand the validated event to the queue. The jobId is our idempotency key:
+  // "<matchId>-<seq>" is unique per event, so if the same event is polled
+  // twice (retry, duplicate poll) BullMQ ignores the second add — the worker
+  // processes it exactly once. (BullMQ reserves ":" for its own Redis keys,
+  // so we use "-" as the separator.)
+  private async enqueue(event: EventDto): Promise<void> {
+    const jobId = `${event.matchId}-${event.seq}`;
+    await this.queue.add('event', { ...event }, { jobId, removeOnComplete: true });
+    this.logger.log(`[enqueue] job ${jobId}: ${event.type} ${event.team} (${event.player})`);
   }
 
   // Validate one untrusted event against the DTO. Returns the typed event or

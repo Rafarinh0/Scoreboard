@@ -1,13 +1,19 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
+import { EVENTS_QUEUE } from '../queue.constants';
 import { EVENT_SOURCE } from './event-source';
 import { SimulatedSourceService } from './sources/simulated-source.service';
 import { RealSourceService } from './sources/real-source.service';
 import { PollerService } from './poller.service';
 
 @Module({
-  imports: [HttpModule],
+  imports: [
+    HttpModule,
+    // Registers this module as a producer for the "events" queue.
+    BullModule.registerQueue({ name: EVENTS_QUEUE }),
+  ],
   providers: [
     SimulatedSourceService,
     RealSourceService,
