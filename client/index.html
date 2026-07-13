@@ -19,28 +19,33 @@
     .controls { margin: 1rem 0; }
     input { padding: .4rem .6rem; font-size: 1rem; width: 6rem; text-align: center; }
     button { padding: .4rem .9rem; font-size: 1rem; cursor: pointer; }
-    .status { font-size: .85rem; opacity: .7; margin-bottom: 1.5rem; }
+    .status { font-size: .85rem; opacity: .7; margin-bottom: 1rem; }
+
+    /* phase banner + clock */
+    .phase {
+      display: inline-flex; align-items: center; gap: .5rem;
+      font-size: .8rem; font-weight: 700; letter-spacing: .05em;
+      padding: .25rem .7rem; border-radius: 999px;
+      background: rgba(128,128,128,.15); margin-bottom: .5rem;
+    }
+    .phase .dot { width: .5rem; height: .5rem; border-radius: 50%; background: #888; }
+    .phase.live .dot { background: #e23; animation: blink 1s steps(2, start) infinite; }
+    @keyframes blink { to { visibility: hidden; } }
+    .clock { font-size: 1.1rem; font-variant-numeric: tabular-nums; opacity: .8; margin-bottom: .5rem; }
+
     .board {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 1.5rem;
-      font-size: 4rem;
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
+      display: flex; justify-content: center; align-items: center; gap: 1.5rem;
+      font-size: 4rem; font-weight: 700; font-variant-numeric: tabular-nums;
     }
     .team { font-size: .9rem; font-weight: 500; opacity: .7; }
     .side { display: flex; flex-direction: column; gap: .3rem; }
-    .log {
-      margin-top: 2rem;
-      text-align: left;
-      font-family: monospace;
-      font-size: .8rem;
-      max-height: 200px;
-      overflow-y: auto;
-      border-top: 1px solid rgba(128,128,128,.3);
-      padding-top: .5rem;
+
+    .feed {
+      margin-top: 2rem; text-align: left; font-size: .95rem;
+      max-height: 260px; overflow-y: auto;
+      border-top: 1px solid rgba(128,128,128,.3); padding-top: .5rem;
     }
+    .feed div { padding: .25rem 0; border-bottom: 1px solid rgba(128,128,128,.12); }
   </style>
 </head>
 <body>
@@ -52,45 +57,89 @@
   </div>
   <div class="status" id="status">desconectado</div>
 
+  <div class="phase" id="phase"><span class="dot"></span><span id="phaseText">PRÉ-JOGO</span></div>
+  <div class="clock" id="clock">--'</div>
+
   <div class="board">
     <div class="side"><span class="team">CASA</span><span id="home">0</span></div>
     <span>×</span>
     <div class="side"><span class="team">VISITANTE</span><span id="away">0</span></div>
   </div>
 
-  <div class="log" id="log"></div>
+  <div class="feed" id="feed"></div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     const socket = io('http://localhost:3000');
 
-    function log(msg) {
+    // Local match clock. The server tells us the minute on every event; between
+    // events we tick locally at the same rate the mock uses (1s per match
+    // minute), and each incoming event resyncs us so drift is corrected.
+    const CLOCK_TICK_MS = 1000;
+    let minute = 0;
+    let ticking = false;
+
+    const PHASES = {
+      scheduled: 'PRÉ-JOGO',
+      live: 'AO VIVO',
+      halftime: 'INTERVALO',
+      ended: 'ENCERRADO',
+    };
+    const teamLabel = (t) => (t === 'home' ? 'casa' : 'visitante');
+
+    function renderClock() {
+      $('clock').textContent = minute + "'";
+    }
+    function renderPhase(phase) {
+      $('phase').className = 'phase' + (phase === 'live' ? ' live' : '');
+      $('phaseText').textContent = PHASES[phase] || phase;
+      ticking = phase === 'live';
+    }
+    function feed(msg) {
       const line = document.createElement('div');
-      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-      $('log').prepend(line);
+      line.textContent = msg;
+      $('feed').prepend(line);
+    }
+
+    // Format an event into a feed line.
+    function describe(e) {
+      switch (e.type) {
+        case 'kickoff': return '🟢 Início do jogo';
+        case 'goal': return `⚽ GOL! ${e.player} (${teamLabel(e.team)}) aos ${e.minute}'`;
+        case 'card': return `🟨 Cartão — ${e.player} (${teamLabel(e.team)}) aos ${e.minute}'`;
+        case 'halftime': return '⏸️ Intervalo';
+        case 'fulltime': return '🏁 Fim de jogo';
+        default: return `• ${e.type}`;
+      }
     }
 
     function subscribe() {
       const matchId = $('matchId').value.trim();
+      $('feed').innerHTML = '';
       socket.emit('subscribe', matchId);
-      log(`assinando partida ${matchId}`);
+      feed(`assinando partida ${matchId}`);
     }
 
     socket.on('connect', () => {
       $('status').textContent = `conectado (id ${socket.id})`;
       subscribe();
     });
+    socket.on('disconnect', () => { $('status').textContent = 'desconectado'; });
 
-    socket.on('disconnect', () => {
-      $('status').textContent = 'desconectado';
+    // The server PUSHES this whenever something happens (and once on subscribe).
+    socket.on('update', ({ state, event }) => {
+      $('home').textContent = state.home;
+      $('away').textContent = state.away;
+      minute = state.minute;       // resync the clock to the authoritative minute
+      renderClock();
+      renderPhase(state.phase);
+      if (event) feed(describe(event));
     });
 
-    // The server PUSHES this whenever the score changes.
-    socket.on('score', (score) => {
-      $('home').textContent = score.home;
-      $('away').textContent = score.away;
-      log(`placar recebido: ${score.home}-${score.away}`);
-    });
+    // Local ticker: advance the minute while the match is live.
+    setInterval(() => {
+      if (ticking) { minute += 1; renderClock(); }
+    }, CLOCK_TICK_MS);
 
     $('subscribeBtn').addEventListener('click', subscribe);
   </script>
