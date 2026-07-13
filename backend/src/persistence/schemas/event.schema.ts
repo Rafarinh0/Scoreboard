@@ -17,11 +17,12 @@ export class Event {
   @Prop({ required: true })
   type!: string;
 
-  @Prop({ required: true })
-  team!: string;
+  // Only present for scoring events (goal/card), not for phase markers.
+  @Prop()
+  team?: string;
 
-  @Prop({ required: true })
-  player!: string;
+  @Prop()
+  player?: string;
 
   @Prop({ required: true })
   minute!: number;

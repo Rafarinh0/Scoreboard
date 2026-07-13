@@ -3,12 +3,17 @@
 
 export const EVENTS_QUEUE = 'events';
 
-// The data each queued job carries: a validated match event.
+// The kinds of event that flow through the pipeline: scoring events and the
+// phase markers that signal the start, interval and end of a match.
+export type EventType = 'kickoff' | 'goal' | 'card' | 'halftime' | 'fulltime';
+
+// The data each queued job carries: a validated match event. team/player only
+// apply to goal/card; phase markers omit them.
 export interface EventJobData {
   seq: number;
   matchId: string;
-  type: 'goal' | 'card';
-  team: 'home' | 'away';
-  player: string;
+  type: EventType;
+  team?: 'home' | 'away';
+  player?: string;
   minute: number;
 }
