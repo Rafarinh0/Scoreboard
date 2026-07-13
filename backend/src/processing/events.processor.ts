@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { EVENTS_QUEUE, EventJobData } from '../queue.constants';
 import { PersistenceService } from '../persistence/persistence.service';
 import { ScoreboardService } from '../scoreboard/scoreboard.service';
+import { ScoreboardGateway } from '../scoreboard/scoreboard.gateway';
 
 // The worker is the "heavy" side the guide talks about: it consumes jobs from
 // the queue at its own pace and does the real work — persist to Mongo and
@@ -17,6 +18,7 @@ export class EventsProcessor extends WorkerHost {
   constructor(
     private readonly persistence: PersistenceService,
     private readonly scoreboard: ScoreboardService,
+    private readonly gateway: ScoreboardGateway,
   ) {
     super();
   }
@@ -31,6 +33,9 @@ export class EventsProcessor extends WorkerHost {
 
     // 2. Update the derived scoreboard state.
     const score = this.scoreboard.apply(e);
+
+    // 3. Push the new score to every client watching this match.
+    this.gateway.broadcastScore(score);
 
     this.logger.log(
       `[process] match ${e.matchId} #${e.seq}: ${e.type} ${e.team} (${e.player}) → ${score.home}-${score.away}`,
