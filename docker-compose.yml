@@ -1,0 +1,45 @@
+# Brings up the whole system with one command: `docker compose up --build`.
+# Besides running everything, this file documents the architecture as a set of
+# collaborating services.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+
+  mongo:
+    image: mongo:7
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+
+  mock-events-api:
+    build: ./mock-events-api
+    ports:
+      - '4000:4000'
+    environment:
+      PORT: 4000
+
+  backend:
+    build: ./backend
+    ports:
+      - '3000:3000'
+    depends_on:
+      - redis
+      - mongo
+      - mock-events-api
+    environment:
+      PORT: 3000
+      # Services reach each other by service name, not localhost.
+      EVENT_SOURCE: simulated
+      MOCK_EVENTS_API_URL: http://mock-events-api:4000
+      MATCH_IDS: '42'
+      POLL_INTERVAL_MS: '3000'
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      MONGO_URI: mongodb://mongo:27017/scoreboard
+
+volumes:
+  # Named volume so MongoDB data survives `docker compose down`.
+  mongo-data:
