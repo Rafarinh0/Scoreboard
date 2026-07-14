@@ -1,77 +1,78 @@
-# Placar ao Vivo
+# Live Scoreboard
 
-Projeto de estudo: um placar esportivo em tempo real. Serve para praticar filas,
-WebSocket, persistência e uma arquitetura orientada a eventos em Node/TypeScript.
+A study project: a real-time sports scoreboard. It's for practicing queues,
+WebSocket, persistence and an event-driven architecture in Node/TypeScript.
 
-Eventos de uma partida (início, gol, cartão, intervalo, fim) são consumidos de uma
-API, processados e empurrados para as telas conectadas conforme acontecem.
+Match events (kickoff, goal, card, halftime, fulltime) are consumed from an API,
+processed, and pushed to connected screens as they happen.
 
-## Como funciona
+## How it works
 
 ```
-mock-events-api   → narra uma partida ao longo do tempo (fonte de eventos)
-      │  polling HTTP com cursor
-poller            → consome, valida e enfileira
+mock-events-api   → narrates a match over time (the event source)
+      │  HTTP polling with a cursor
+poller            → consumes, validates and enqueues
       │
-fila (BullMQ/Redis) → desacopla ingestão de processamento
+queue (BullMQ/Redis) → decouples ingestion from processing
       │
-worker            → grava no Mongo e atualiza o estado da partida
+worker            → writes to Mongo and updates the match state
       │
-WebSocket gateway → empurra o placar para quem assiste
+WebSocket gateway → pushes the score to whoever is watching
       │
-client (HTML)     → a tela atualiza sozinha
+client (HTML)     → the screen updates on its own
 ```
 
 ## Stack
 
 - **NestJS / TypeScript** — backend
-- **Express** — a API que simula a fonte de eventos
-- **BullMQ + Redis** — fila entre ingestão e processamento
-- **MongoDB (Mongoose)** — histórico dos eventos
-- **socket.io** — WebSocket para o tempo real
-- **Docker Compose** — sobe tudo junto
+- **Express** — the API that simulates the event source
+- **BullMQ + Redis** — queue between ingestion and processing
+- **MongoDB (Mongoose)** — event history
+- **socket.io** — WebSocket for real time
+- **Docker Compose** — brings everything up together
 
-## Rodando
+## Running
 
-Precisa de Docker.
+Requires Docker.
 
 ```bash
 docker compose up --build
 ```
 
-Depois abra `client/index.html` no navegador, deixe a partida em `42` e clique em
-**Assistir**. A partida dura ~90s: início, gols, intervalo e fim, com o placar
-mudando ao vivo.
+Then open `client/index.html` in a browser, leave the match at `42` and click
+**Assistir**. A match lasts ~90s: kickoff, goals, halftime and fulltime, with the
+score changing live.
 
 ```bash
-docker compose down -v   # para tudo e zera o Mongo (para reassistir do zero)
+docker compose down -v   # stop everything and wipe Mongo (to rewatch from scratch)
 ```
 
-Para reassistir a mesma partida use `down -v` antes de subir de novo, senão os
-eventos já estão no Mongo e o placar aparece 0-0.
+To rewatch the same match, run `down -v` before starting again — otherwise the
+events are already in Mongo and the score shows 0-0.
 
-## Estrutura
+## Structure
 
 ```
 backend/            # NestJS
   src/
-    ingestion/      # poller + fonte de eventos (interface EventSource) + validação
-    processing/     # worker que consome a fila
-    scoreboard/     # estado da partida + WebSocket gateway
-    persistence/    # schema e repositório do Mongo
-mock-events-api/    # simula a fonte de eventos (Express)
-client/             # a tela (HTML + socket.io)
+    ingestion/      # poller + event source (EventSource interface) + validation
+    processing/     # worker that consumes the queue
+    scoreboard/     # match state + WebSocket gateway
+    persistence/    # Mongo schema and repository
+mock-events-api/    # simulates the event source (Express)
+client/             # the screen (HTML + socket.io)
 docker-compose.yml
 ```
 
-## Notas
+## Notes
 
-Algumas simplificações, por ser projeto de estudo:
+Some simplifications, since this is a study project:
 
-- O estado da partida (placar, fase, minuto) fica em memória e se perde no restart.
-- Roda em uma instância só; escalar o WebSocket exigiria Redis Pub/Sub entre elas.
-- O relógio da partida corre no cliente, assumindo a mesma velocidade da mock.
+- Match state (score, phase, minute) is kept in memory and is lost on restart.
+- It runs as a single instance; scaling the WebSocket would need Redis Pub/Sub
+  between instances.
+- The match clock runs on the client, assuming the same speed as the mock.
 
-Não implementado (ideias para depois): ranking com Redis sorted set, múltiplas
-instâncias com Pub/Sub, webhook como fonte alternativa, rate limiting, consumir uma
-API esportiva real.
+Not implemented (ideas for later): a ranking with a Redis sorted set, multiple
+instances with Pub/Sub, a webhook as an alternative source, rate limiting,
+consuming a real sports API.
